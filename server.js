@@ -7,19 +7,19 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Enable CORS so Unity can connect from localhost or WebGL builds
+// ✅ Enable CORS (for Unity WebGL or standalone builds)
 app.use(cors());
 
-// Serve static files from uploads folder (to access uploaded files)
-app.use('/uploads', express.static('uploads'));
+// ✅ Serve static uploaded files from /uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Ensure uploads directory exists
+// ✅ Ensure the uploads folder exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
 
-// Configure multer storage
+// ✅ Multer config for saving JSON files
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         cb(null, 'uploads/');
@@ -30,10 +30,9 @@ const storage = multer.diskStorage({
     }
 });
 
-// Set limits and file type filters (optional)
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     fileFilter: function (req, file, cb) {
         if (file.mimetype === 'application/json') {
             cb(null, true);
@@ -43,16 +42,18 @@ const upload = multer({
     }
 });
 
-// GET / - Friendly homepage
+// ✅ Home page route
 app.get('/', (req, res) => {
     res.send(`
-        <h2>📁 Unity JSON Upload Server</h2>
-        <p>Use <code>POST /upload</code> to upload .json files.</p>
+        <h2>📁 Unsity Upload Server is Running</h2>
+        <p>Send a POST request to <code>/upload</code> with a .json file using the form field named <code>file</code>.</p>
     `);
 });
 
-// POST /upload - File upload endpoint
+// ✅ Upload route
 app.post('/upload', upload.single('file'), (req, res) => {
+    console.log("🔔 POST /upload received");
+
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded.' });
     }
@@ -64,13 +65,13 @@ app.post('/upload', upload.single('file'), (req, res) => {
     });
 });
 
-// Error handler (for Multer or other middleware errors)
+// ✅ Error handler
 app.use((err, req, res, next) => {
     console.error('❌ Error:', err.message);
     res.status(500).json({ error: err.message });
 });
 
-// Start server
+// ✅ Start server
 app.listen(PORT, () => {
-    console.log(`🚀 Server is running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
