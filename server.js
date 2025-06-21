@@ -6,25 +6,24 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const MAX_STORAGE_BYTES = 500 * 1024 * 1024; // 500 MB
 
-// Enable CORS for Unity and browsers
+// Middleware
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Serve uploaded files publicly
+// Upload folder setup
 const uploadDir = path.join(__dirname, 'uploads');
-app.use('/uploads', express.static(uploadDir));
-
-// Ensure upload folder exists
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir);
 }
+app.use('/uploads', express.static(uploadDir));
 
-// Multer storage config
+// Multer setup
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         const displayName = req.body.name || "Unknown";
@@ -33,34 +32,44 @@ const storage = multer.diskStorage({
         cb(null, filename);
     }
 });
-
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
     fileFilter: (req, file, cb) => {
         if (file.mimetype === 'application/json') cb(null, true);
         else cb(new Error('Only JSON files allowed'));
     }
 });
 
-// Home Page: File browser
+// Homepage
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir)
         .filter(f => f.endsWith('.json'))
         .map(filename => {
+            const filePath = path.join(uploadDir, filename);
+            const stats = fs.statSync(filePath);
+            const sizeKB = (stats.size / 1024).toFixed(1);
             const [timestamp, ...nameParts] = filename.replace('.json', '').split('-');
             const uploader = nameParts.join('-') || "Unknown";
+
             return {
                 filename,
                 uploader,
-                url: `/uploads/${filename}`
+                url: `/uploads/${filename}`,
+                sizeKB,
+                sizeBytes: stats.size
             };
         });
 
+    const totalBytes = files.reduce((sum, f) => sum + f.sizeBytes, 0);
+    const totalMB = (totalBytes / (1024 * 1024)).toFixed(2);
+    const usedPercent = ((totalBytes / MAX_STORAGE_BYTES) * 100).toFixed(1);
+
     let html = `
         <h2>📁 Uploaded Files</h2>
+        <p>💾 Used: <strong>${totalMB} MB / 500 MB</strong> (${usedPercent}%)</p>
         <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Uploader</th><th>File</th><th>Actions</th></tr>
+        <tr><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>
     `;
 
     for (const file of files) {
@@ -68,6 +77,7 @@ app.get('/', (req, res) => {
         <tr>
             <td>${file.uploader}</td>
             <td><a href="${file.url}" target="_blank">${file.filename}</a></td>
+            <td>${file.sizeKB} KB</td>
             <td>
                 <form method="POST" action="/delete" style="display:inline">
                     <input type="hidden" name="filename" value="${file.filename}" />
@@ -79,7 +89,7 @@ app.get('/', (req, res) => {
     }
 
     html += `</table>
-        <p>🧹 Delete files regularly to stay under Render’s 500MB limit.</p>
+        <p style="margin-top:20px; font-size:14px;">🧹 Delete older files to avoid hitting the 500MB limit on Render’s free plan.</p>
     `;
 
     res.send(html);
@@ -87,14 +97,14 @@ app.get('/', (req, res) => {
 
 // Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
-    console.log(`📥 Upload from: ${req.body.name}`);
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    console.log(`📥 Uploaded: ${req.file.filename}`);
     res.json({ message: '✅ Upload complete', fileUrl });
 });
 
-// Delete endpoint
+// Delete file
 app.post('/delete', (req, res) => {
     const filename = req.body.filename;
     const filePath = path.join(uploadDir, filename);
@@ -108,13 +118,13 @@ app.post('/delete', (req, res) => {
     res.redirect('/');
 });
 
-// Error handler
+// Error handling
 app.use((err, req, res, next) => {
-    console.error('❌ Server Error:', err.message);
+    console.error('❌ Server error:', err.message);
     res.status(500).json({ error: err.message });
 });
 
-// Start server
+// Start
 app.listen(PORT, () => {
     console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
