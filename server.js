@@ -11,17 +11,16 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use(express.static(uploadDir));
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Store winner highlights in memory
-let lastWinners = [];
+let lastWinners = []; // ⬅️ Store winners for UI highlights
 
-// Multer setup
+// Multer storage config
 const storage = multer.diskStorage({
     destination: (_, __, cb) => cb(null, uploadDir),
     filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage: storage });
 
-// Upload route
+// 🔼 Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
     const uploader = req.body.name || 'Unknown';
     if (!req.file) return res.status(400).send('❌ No file uploaded.');
@@ -29,11 +28,11 @@ app.post('/upload', upload.single('file'), (req, res) => {
     const metaPath = path.join(uploadDir, req.file.filename + '.meta');
     fs.writeFileSync(metaPath, uploader);
 
-    console.log(`✅ File uploaded: ${req.file.filename} by ${uploader}`);
+    console.log(`✅ Uploaded: ${req.file.filename} by ${uploader}`);
     res.status(200).send('✅ File uploaded successfully!');
 });
 
-// Home page
+// 🏠 Homepage
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir)
         .filter(f => f.endsWith('.json'))
@@ -82,10 +81,7 @@ app.get('/', (req, res) => {
             <td>${file.sizeKB} KB</td>
             <td>
                 <a href="${file.url}" download>⬇️ Download</a> |
-                <form method="POST" action="/delete" style="display:inline">
-                    <input type="hidden" name="filename" value="${file.filename}" />
-                    <button type="submit">❌ Delete</button>
-                </form>
+                <a href="/delete-file?filename=${encodeURIComponent(file.filename)}" onclick="return confirm('Delete ${file.filename}?')">❌ Delete</a>
             </td>
         </tr>`;
     }
@@ -114,20 +110,26 @@ app.get('/', (req, res) => {
     res.send(html);
 });
 
-// Delete one file
-app.post('/delete', (req, res) => {
-    const filename = req.body.filename;
+// 🗑️ GET delete (no form error)
+app.get('/delete-file', (req, res) => {
+    const filename = req.query.filename;
+    if (!filename) return res.redirect('/');
+
     const filePath = path.join(uploadDir, filename);
     const metaPath = filePath + '.meta';
 
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+        console.log(`🗑️ Deleted: ${filename}`);
+    } catch (err) {
+        console.error("❌ Delete error:", err);
+    }
 
-    console.log(`🗑️ Deleted: ${filename}`);
     res.redirect('/');
 });
 
-// Delete multiple files
+// 🧹 POST bulk delete
 app.post('/delete-multiple', (req, res) => {
     const filenames = req.body.filenames;
     const selected = Array.isArray(filenames) ? filenames : [filenames];
@@ -144,7 +146,7 @@ app.post('/delete-multiple', (req, res) => {
     res.redirect('/');
 });
 
-// Pick winners (store them)
+// 🏆 Pick random winners
 app.post('/pick-winners', (req, res) => {
     const count = parseInt(req.body.count);
     const jsonFiles = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
@@ -158,13 +160,14 @@ app.post('/pick-winners', (req, res) => {
     res.redirect('/');
 });
 
-// Clear winners
+// 🧼 Clear winner highlights
 app.post('/clear-winners', (req, res) => {
     lastWinners = [];
-    console.log('🏳️ Winner highlights cleared');
+    console.log('🏳️ Cleared winner highlights');
     res.redirect('/');
 });
 
+// 🚀 Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
