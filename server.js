@@ -6,25 +6,25 @@ const bodyParser = require('body-parser');
 
 const app = express();
 const uploadDir = path.join(__dirname, 'uploads');
-
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
 app.use(express.static(uploadDir));
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Multer config
+// Store winner highlights in memory
+let lastWinners = [];
+
+// Multer setup
 const storage = multer.diskStorage({
     destination: (_, __, cb) => cb(null, uploadDir),
     filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage: storage });
 
-// 🟩 Upload route
+// Upload route
 app.post('/upload', upload.single('file'), (req, res) => {
     const uploader = req.body.name || 'Unknown';
-    if (!req.file) {
-        return res.status(400).send('❌ No file uploaded.');
-    }
+    if (!req.file) return res.status(400).send('❌ No file uploaded.');
 
     const metaPath = path.join(uploadDir, req.file.filename + '.meta');
     fs.writeFileSync(metaPath, uploader);
@@ -33,7 +33,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
     res.status(200).send('✅ File uploaded successfully!');
 });
 
-// 🟦 Home page with files
+// Home page
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir)
         .filter(f => f.endsWith('.json'))
@@ -55,6 +55,7 @@ app.get('/', (req, res) => {
     const usedPercent = ((totalMB / 500) * 100).toFixed(1);
 
     let html = `
+    <html><head><title>Unity Upload Server</title></head><body style="font-family:sans-serif;padding:20px">
     <h2>📁 Uploaded Files</h2>
     <p>💾 Used: <strong>${totalMB} MB / 500 MB</strong> (${usedPercent}%)</p>
 
@@ -69,11 +70,15 @@ app.get('/', (req, res) => {
     </tr>`;
 
     for (const file of files) {
+        const isWinner = lastWinners.includes(file.filename);
+        const rowStyle = isWinner ? 'style="background-color:#fff3b0;font-weight:bold;"' : '';
+        const trophy = isWinner ? '🏆 ' : '';
+
         html += `
-        <tr>
+        <tr ${rowStyle}>
             <td><input type="checkbox" name="filenames" value="${file.filename}"></td>
             <td>${file.uploader}</td>
-            <td><a href="${file.url}" target="_blank">${file.filename}</a></td>
+            <td>${trophy}<a href="${file.url}" target="_blank">${file.filename}</a></td>
             <td>${file.sizeKB} KB</td>
             <td>
                 <a href="${file.url}" download>⬇️ Download</a> |
@@ -86,26 +91,30 @@ app.get('/', (req, res) => {
     }
 
     html += `
-    </table>
-    <br>
+    </table><br>
     <button type="submit">🧹 Delete Selected</button>
     </form>
 
     <hr style="margin-top:40px">
-    <h3>🎲 Random Winner Picker</h3>
+    <h3>🎲 Pick Random Winner(s)</h3>
     <form method="POST" action="/pick-winners">
         <label>How many winners?</label>
         <input type="number" name="count" min="1" max="${files.length}" required>
-        <button type="submit">Pick Winner(s)</button>
+        <button type="submit">Pick</button>
     </form>
 
-    <p style="margin-top:20px; font-size:14px;">🧼 Clean up old files to stay within 500MB limit.</p>
+    <form method="POST" action="/clear-winners" style="margin-top:10px;">
+        <button type="submit">❌ Clear Highlights</button>
+    </form>
+
+    <p style="margin-top:30px; font-size:13px;">🧼 Clean up old files to stay under Render's 500MB free limit.</p>
+    </body></html>
     `;
 
     res.send(html);
 });
 
-// 🟥 Single delete
+// Delete one file
 app.post('/delete', (req, res) => {
     const filename = req.body.filename;
     const filePath = path.join(uploadDir, filename);
@@ -114,11 +123,11 @@ app.post('/delete', (req, res) => {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
 
-    console.log(`🗑️ Deleted file: ${filename}`);
+    console.log(`🗑️ Deleted: ${filename}`);
     res.redirect('/');
 });
 
-// 🟧 Bulk delete
+// Delete multiple files
 app.post('/delete-multiple', (req, res) => {
     const filenames = req.body.filenames;
     const selected = Array.isArray(filenames) ? filenames : [filenames];
@@ -135,24 +144,25 @@ app.post('/delete-multiple', (req, res) => {
     res.redirect('/');
 });
 
-// 🟨 Winner picker
+// Pick winners (store them)
 app.post('/pick-winners', (req, res) => {
     const count = parseInt(req.body.count);
     const jsonFiles = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
 
     if (isNaN(count) || count < 1 || count > jsonFiles.length) {
-        return res.send(`<p>❌ Invalid count. <a href="/">Back</a></p>`);
+        return res.redirect('/');
     }
 
-    const winners = jsonFiles.sort(() => 0.5 - Math.random()).slice(0, count);
+    lastWinners = jsonFiles.sort(() => 0.5 - Math.random()).slice(0, count);
+    console.log(`🏆 Winners picked: ${lastWinners.join(', ')}`);
+    res.redirect('/');
+});
 
-    let html = `<h2>🏆 Winners (${count})</h2><ul>`;
-    for (const file of winners) {
-        html += `<li><strong>${file}</strong></li>`;
-    }
-    html += `</ul><p><a href="/">⬅️ Back</a></p>`;
-
-    res.send(html);
+// Clear winners
+app.post('/clear-winners', (req, res) => {
+    lastWinners = [];
+    console.log('🏳️ Winner highlights cleared');
+    res.redirect('/');
 });
 
 const PORT = process.env.PORT || 3000;
