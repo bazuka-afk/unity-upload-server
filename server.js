@@ -14,13 +14,10 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
 if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 
-app.use(express.static(uploadDir));
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(uploadDir));
 
-let lastWinners = [];
-
-// 🔼 Upload
-
+// 💾 Limit log file size
 function limitLogSize(filePath, maxBytes = 1048576) {
     try {
         const stats = fs.statSync(filePath);
@@ -32,23 +29,7 @@ function limitLogSize(filePath, maxBytes = 1048576) {
     }
 }
 
-
-
-
-app.post('/upload', multer({
-    storage: multer.diskStorage({
-        destination: (_, __, cb) => cb(null, uploadDir),
-        filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-    })
-}).single('file'), (req, res) => {
-    const uploader = req.body.name || 'Unknown';
-    if (!req.file) return res.status(400).send('❌ No file uploaded.');
-
-    fs.writeFileSync(path.join(uploadDir, req.file.filename + '.meta'), uploader);
-    res.status(200).send('✅ File uploaded successfully!');
-});
-
-// 🏠 Upload page
+// 🏠 Dashboard (homepage)
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
     const totalMaps = files.length;
@@ -61,29 +42,81 @@ app.get('/', (req, res) => {
     const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
 
     res.send(`
-        <html><head><title>🛠 Server Dashboard</title></head>
-        <body style="font-family:sans-serif; padding:20px; background:#f9f9f9;">
+        <html><head><title>🛠 Dashboard</title></head>
+        <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
             <h1>🛠 Unity Upload Server Dashboard</h1>
             <p>📁 Total Maps: <b>${totalMaps}</b></p>
             <p>💾 Disk Usage: <b>${totalSizeMB} MB</b> / 500 MB</p>
             <p>🔇 Voice Ban Entries: <b>${logs.length}</b></p>
 
-            <hr>
             <h3>📂 Quick Links</h3>
             <ul>
-                <li><a href="/uploads">📤 View Uploaded Maps</a></li>
-                <li><a href="/dashboard/voice-bans">🔇 View Voice Logs</a></li>
+                <li><a href="/uploads">📤 Uploaded Maps</a></li>
+                <li><a href="/dashboard/voice-bans">🔇 Voice Ban Logs</a></li>
             </ul>
 
-            <hr>
             <h3>🕵️ Recent Voice Logs</h3>
             <ul>${recentLogs || '<li>No logs yet.</li>'}</ul>
         </body></html>
     `);
 });
 
+// 📤 Upload page
+app.get('/uploads', (req, res) => {
+    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
+        const filePath = path.join(uploadDir, filename);
+        const metaPath = filePath + '.meta';
+        const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
+        const uploader = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : 'Unknown';
+        return { filename, uploader, sizeKB, url: '/' + filename };
+    });
 
-// 📤 GET delete
+    const totalMB = (files.reduce((a, b) => a + b.sizeKB, 0) / 1024).toFixed(2);
+    const usedPercent = ((totalMB / 500) * 100).toFixed(1);
+
+    let html = `
+    <html><head><title>Uploads</title></head><body style="font-family:sans-serif">
+    <h2>📤 Uploads</h2>
+    <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
+    <a href="/">⬅️ Back to Dashboard</a><br><br>
+    <form method="POST" action="/delete-multiple">
+    <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
+
+    for (const file of files) {
+        html += `<tr>
+        <td><input type="checkbox" name="filenames" value="${file.filename}"></td>
+        <td>${file.uploader}</td>
+        <td><a href="${file.url}" target="_blank">${file.filename}</a></td>
+        <td>${file.sizeKB} KB</td>
+        <td><a href="/delete-file?filename=${file.filename}">❌ Delete</a></td>
+        </tr>`;
+    }
+
+    html += `</table><button type="submit">🧹 Delete Selected</button></form>
+    <br><form method="POST" action="/pick-winners">
+        <label>Pick Winners:</label>
+        <input name="count" type="number" min="1" max="${files.length}" required>
+        <button type="submit">🎲 Pick</button>
+    </form>
+    <form method="POST" action="/clear-winners"><button>Reset Winners</button></form>
+    </body></html>`;
+    res.send(html);
+});
+
+// 🔼 Upload endpoint
+app.post('/upload', multer({
+    storage: multer.diskStorage({
+        destination: (_, __, cb) => cb(null, uploadDir),
+        filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+    })
+}).single('file'), (req, res) => {
+    const uploader = req.body.name || 'Unknown';
+    if (!req.file) return res.status(400).send('❌ No file uploaded.');
+    fs.writeFileSync(path.join(uploadDir, req.file.filename + '.meta'), uploader);
+    res.status(200).send('✅ File uploaded successfully!');
+});
+
+// ❌ Delete file
 app.get('/delete-file', (req, res) => {
     const file = req.query.filename;
     if (!file) return res.redirect('/');
@@ -91,7 +124,7 @@ app.get('/delete-file', (req, res) => {
         fs.unlinkSync(path.join(uploadDir, file));
         fs.unlinkSync(path.join(uploadDir, file + '.meta'));
     } catch {}
-    res.redirect('/');
+    res.redirect('/uploads');
 });
 
 // 🧹 Bulk delete
@@ -103,25 +136,26 @@ app.post('/delete-multiple', (req, res) => {
             fs.unlinkSync(path.join(uploadDir, f + '.meta'));
         } catch {}
     }
-    res.redirect('/');
+    res.redirect('/uploads');
 });
 
-// 🏆 Winner pick
+// 🏆 Pick random winners
+let lastWinners = [];
 app.post('/pick-winners', (req, res) => {
     const count = parseInt(req.body.count);
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
     if (!isNaN(count) && count > 0 && count <= files.length) {
         lastWinners = files.sort(() => 0.5 - Math.random()).slice(0, count);
     }
-    res.redirect('/');
+    res.redirect('/uploads');
 });
 
 app.post('/clear-winners', (_, res) => {
     lastWinners = [];
-    res.redirect('/');
+    res.redirect('/uploads');
 });
 
-// 🧠 Voice ban logs
+// 🔇 Voice moderation log
 app.post('/voice-log', (req, res) => {
     const name = req.body.name || 'Unknown';
     const reason = req.body.reason || 'No reason';
@@ -132,23 +166,16 @@ app.post('/voice-log', (req, res) => {
     res.sendStatus(200);
 });
 
-
-// 📊 Dashboard
-app.get('/dashboard', (_, res) => {
-    res.send(`<html><body style="font-family:sans-serif">
-    <h2>🛠 Dashboard</h2>
-    <ul>
-        <li><a href="/">📁 View Uploads</a></li>
-        <li><a href="/dashboard/voice-bans">🔇 Voice Ban Logs</a></li>
-    </ul></body></html>`);
-});
-
+// 🔍 View voice log
 app.get('/dashboard/voice-bans', (_, res) => {
-    const logText = fs.readFileSync(voiceLogFile, 'utf8');
+    const logText = fs.existsSync(voiceLogFile)
+        ? fs.readFileSync(voiceLogFile, 'utf8')
+        : '[No logs]';
     res.send(`<html><body style="font-family:sans-serif">
     <h2>🔇 Voice Ban Logs</h2><pre>${logText}</pre>
-    <a href="/dashboard">⬅️ Back</a></body></html>`);
+    <a href="/">⬅️ Back to Dashboard</a></body></html>`);
 });
 
+// Start
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
