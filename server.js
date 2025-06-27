@@ -50,49 +50,38 @@ app.post('/upload', multer({
 
 // 🏠 Upload page
 app.get('/', (req, res) => {
-    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
-        const filePath = path.join(uploadDir, filename);
-        const metaPath = filePath + '.meta';
-        const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
-        const uploader = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : 'Unknown';
-        return { filename, uploader, sizeKB, url: '/' + filename };
-    });
+    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
+    const totalMaps = files.length;
+    const totalSizeMB = (files.reduce((sum, f) => sum + fs.statSync(path.join(uploadDir, f)).size, 0) / (1024 * 1024)).toFixed(2);
 
-    const totalMB = (files.reduce((a, b) => a + b.sizeKB, 0) / 1024).toFixed(2);
-    const usedPercent = ((totalMB / 500) * 100).toFixed(1);
+    const logs = fs.existsSync(voiceLogFile)
+        ? fs.readFileSync(voiceLogFile, 'utf8').trim().split('\n').filter(Boolean)
+        : [];
 
-    let html = `
-    <html><head><title>Upload</title></head><body style="font-family:sans-serif">
-    <h2>📤 Uploads</h2>
-    <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
-    <a href="/dashboard">🛠 Go to Dashboard</a><br><br>
-    <form method="POST" action="/delete-multiple">
-    <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
+    const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
 
-    for (const file of files) {
-        const isWinner = lastWinners.includes(file.filename);
-        const rowStyle = isWinner ? 'style="background-color:#ffe9a7;"' : '';
-        const trophy = isWinner ? '🏆 ' : '';
+    res.send(`
+        <html><head><title>🛠 Server Dashboard</title></head>
+        <body style="font-family:sans-serif; padding:20px; background:#f9f9f9;">
+            <h1>🛠 Unity Upload Server Dashboard</h1>
+            <p>📁 Total Maps: <b>${totalMaps}</b></p>
+            <p>💾 Disk Usage: <b>${totalSizeMB} MB</b> / 500 MB</p>
+            <p>🔇 Voice Ban Entries: <b>${logs.length}</b></p>
 
-        html += `<tr ${rowStyle}>
-        <td><input type="checkbox" name="filenames" value="${file.filename}"></td>
-        <td>${file.uploader}</td>
-        <td>${trophy}<a href="${file.url}" target="_blank">${file.filename}</a></td>
-        <td>${file.sizeKB} KB</td>
-        <td><a href="/delete-file?filename=${file.filename}">❌ Delete</a></td>
-        </tr>`;
-    }
+            <hr>
+            <h3>📂 Quick Links</h3>
+            <ul>
+                <li><a href="/uploads">📤 View Uploaded Maps</a></li>
+                <li><a href="/dashboard/voice-bans">🔇 View Voice Logs</a></li>
+            </ul>
 
-    html += `</table><button type="submit">🧹 Delete Selected</button></form>
-    <hr><form method="POST" action="/pick-winners">
-        <label>Pick Winners:</label>
-        <input name="count" type="number" min="1" max="${files.length}" required>
-        <button type="submit">🎲 Pick</button>
-    </form>
-    <form method="POST" action="/clear-winners"><button>Reset Winners</button></form>
-    </body></html>`;
-    res.send(html);
+            <hr>
+            <h3>🕵️ Recent Voice Logs</h3>
+            <ul>${recentLogs || '<li>No logs yet.</li>'}</ul>
+        </body></html>
+    `);
 });
+
 
 // 📤 GET delete
 app.get('/delete-file', (req, res) => {
