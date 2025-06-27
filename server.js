@@ -1,5 +1,4 @@
-﻿// server.js (FULL VERSION WITH UNBAN FEATURE)
-const express = require('express');
+﻿const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -20,6 +19,7 @@ if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(uploadDir));
 
+// Limit log size
 function limitLogSize(filePath, maxBytes = 1048576) {
     try {
         const stats = fs.statSync(filePath);
@@ -98,39 +98,6 @@ app.get('/uploads', (req, res) => {
     res.send(html);
 });
 
-app.post('/upload', multer({
-    storage: multer.diskStorage({
-        destination: (_, __, cb) => cb(null, uploadDir),
-        filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-    })
-}).single('file'), (req, res) => {
-    const uploader = req.body.name || 'Unknown';
-    if (!req.file) return res.status(400).send('❌ No file uploaded.');
-    fs.writeFileSync(path.join(uploadDir, req.file.filename + '.meta'), uploader);
-    res.status(200).send('✅ File uploaded successfully!');
-});
-
-app.get('/delete-file', (req, res) => {
-    const file = req.query.filename;
-    if (!file) return res.redirect('/');
-    try {
-        fs.unlinkSync(path.join(uploadDir, file));
-        fs.unlinkSync(path.join(uploadDir, file + '.meta'));
-    } catch {}
-    res.redirect('/uploads');
-});
-
-app.post('/delete-multiple', (req, res) => {
-    const files = Array.isArray(req.body.filenames) ? req.body.filenames : [req.body.filenames];
-    for (const f of files) {
-        try {
-            fs.unlinkSync(path.join(uploadDir, f));
-            fs.unlinkSync(path.join(uploadDir, f + '.meta'));
-        } catch {}
-    }
-    res.redirect('/uploads');
-});
-
 app.post('/voice-log', async (req, res) => {
     const name = req.body.name || 'Unknown';
     const reason = req.body.reason || 'No reason';
@@ -179,4 +146,3 @@ app.post('/unban-user', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
-
