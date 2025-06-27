@@ -3,6 +3,8 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
+const axios = require('axios');
+require('dotenv').config();
 
 const app = express();
 
@@ -17,7 +19,6 @@ if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(uploadDir));
 
-// 💾 Limit log file size
 function limitLogSize(filePath, maxBytes = 1048576) {
     try {
         const stats = fs.statSync(filePath);
@@ -29,7 +30,6 @@ function limitLogSize(filePath, maxBytes = 1048576) {
     }
 }
 
-// 🏠 Dashboard (homepage)
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
     const totalMaps = files.length;
@@ -61,7 +61,6 @@ app.get('/', (req, res) => {
     `);
 });
 
-// 📤 Upload page
 app.get('/uploads', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
         const filePath = path.join(uploadDir, filename);
@@ -103,7 +102,6 @@ app.get('/uploads', (req, res) => {
     res.send(html);
 });
 
-// 🔼 Upload endpoint
 app.post('/upload', multer({
     storage: multer.diskStorage({
         destination: (_, __, cb) => cb(null, uploadDir),
@@ -116,7 +114,6 @@ app.post('/upload', multer({
     res.status(200).send('✅ File uploaded successfully!');
 });
 
-// ❌ Delete file
 app.get('/delete-file', (req, res) => {
     const file = req.query.filename;
     if (!file) return res.redirect('/');
@@ -127,7 +124,6 @@ app.get('/delete-file', (req, res) => {
     res.redirect('/uploads');
 });
 
-// 🧹 Bulk delete
 app.post('/delete-multiple', (req, res) => {
     const files = Array.isArray(req.body.filenames) ? req.body.filenames : [req.body.filenames];
     for (const f of files) {
@@ -139,7 +135,6 @@ app.post('/delete-multiple', (req, res) => {
     res.redirect('/uploads');
 });
 
-// 🏆 Pick random winners
 let lastWinners = [];
 app.post('/pick-winners', (req, res) => {
     const count = parseInt(req.body.count);
@@ -155,18 +150,40 @@ app.post('/clear-winners', (_, res) => {
     res.redirect('/uploads');
 });
 
-// 🔇 Voice moderation log
-app.post('/voice-log', (req, res) => {
+app.post('/voice-log', async (req, res) => {
     const name = req.body.name || 'Unknown';
     const reason = req.body.reason || 'No reason';
+    const playfabId = req.body.playfabId;
     const time = new Date().toISOString();
-    const entry = `[${time}] 🔇 ${name}: ${reason}\n`;
+    const entry = `[${time}] 🔇 ${name} (${playfabId || 'N/A'}): ${reason}\n`;
+
     limitLogSize(voiceLogFile);
     fs.appendFileSync(voiceLogFile, entry);
+    console.log(entry.trim());
+
+    if (playfabId) {
+        try {
+            await axios.post(`https://${process.env.PLAYFAB_TITLE_ID}.playfabapi.com/Admin/BanUsers`, {
+                Bans: [{
+                    PlayFabId: playfabId,
+                    Reason: reason,
+                    DurationInSeconds: 3600
+                }]
+            }, {
+                headers: {
+                    'X-SecretKey': process.env.PLAYFAB_SECRET_KEY,
+                    'Content-Type': 'application/json'
+                }
+            });
+            console.log(`🚫 Banned ${playfabId} for 1 hour`);
+        } catch (err) {
+            console.error('❌ PlayFab ban failed:', err.response?.data || err.message);
+        }
+    }
+
     res.sendStatus(200);
 });
 
-// 🔍 View voice log
 app.get('/dashboard/voice-bans', (_, res) => {
     const logText = fs.existsSync(voiceLogFile)
         ? fs.readFileSync(voiceLogFile, 'utf8')
@@ -176,6 +193,5 @@ app.get('/dashboard/voice-bans', (_, res) => {
     <a href="/">⬅️ Back to Dashboard</a></body></html>`);
 });
 
-// Start
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
