@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const app = express();
 
+// Setup directories for file uploads and logs
 const uploadDir = path.join(__dirname, 'uploads');
 const logsDir = path.join(__dirname, 'logs');
 const voiceLogFile = path.join(logsDir, 'voice_bans.log');
@@ -16,10 +17,11 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
 if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 
+// Body parser middleware to handle POST requests
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(uploadDir));
 
-// Limit log size
+// Function to limit log size
 function limitLogSize(filePath, maxBytes = 1048576) {
     try {
         const stats = fs.statSync(filePath);
@@ -31,6 +33,7 @@ function limitLogSize(filePath, maxBytes = 1048576) {
     }
 }
 
+// Home page - Dashboard with total maps and voice ban entries
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
     const totalMaps = files.length;
@@ -39,6 +42,7 @@ app.get('/', (req, res) => {
         ? fs.readFileSync(voiceLogFile, 'utf8').trim().split('\n').filter(Boolean)
         : [];
     const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
+    
     res.send(`
         <html><head><title>🛠 Dashboard</title></head>
         <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
@@ -57,6 +61,7 @@ app.get('/', (req, res) => {
     `);
 });
 
+// Upload page
 app.get('/uploads', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
         const filePath = path.join(uploadDir, filename);
@@ -70,12 +75,12 @@ app.get('/uploads', (req, res) => {
     const usedPercent = ((totalMB / 500) * 100).toFixed(1);
 
     let html = `
-    <html><head><title>Uploads</title></head><body style="font-family:sans-serif">
-    <h2>📤 Uploads</h2>
-    <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
-    <a href="/">⬅️ Back to Dashboard</a><br><br>
-    <form method="POST" action="/delete-multiple">
-    <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
+        <html><head><title>Uploads</title></head><body style="font-family:sans-serif">
+        <h2>📤 Uploads</h2>
+        <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
+        <a href="/">⬅️ Back to Dashboard</a><br><br>
+        <form method="POST" action="/delete-multiple">
+        <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
 
     for (const file of files) {
         html += `<tr>
@@ -98,6 +103,43 @@ app.get('/uploads', (req, res) => {
     res.send(html);
 });
 
+// Upload endpoint
+app.post('/upload', multer({
+    storage: multer.diskStorage({
+        destination: (_, __, cb) => cb(null, uploadDir),
+        filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+    })
+}).single('file'), (req, res) => {
+    const uploader = req.body.name || 'Unknown';
+    if (!req.file) return res.status(400).send('❌ No file uploaded.');
+    fs.writeFileSync(path.join(uploadDir, req.file.filename + '.meta'), uploader);
+    res.status(200).send('✅ File uploaded successfully!');
+});
+
+// Delete file
+app.get('/delete-file', (req, res) => {
+    const file = req.query.filename;
+    if (!file) return res.redirect('/');
+    try {
+        fs.unlinkSync(path.join(uploadDir, file));
+        fs.unlinkSync(path.join(uploadDir, file + '.meta'));
+    } catch {}
+    res.redirect('/uploads');
+});
+
+// Bulk delete
+app.post('/delete-multiple', (req, res) => {
+    const files = Array.isArray(req.body.filenames) ? req.body.filenames : [req.body.filenames];
+    for (const f of files) {
+        try {
+            fs.unlinkSync(path.join(uploadDir, f));
+            fs.unlinkSync(path.join(uploadDir, f + '.meta'));
+        } catch {}
+    }
+    res.redirect('/uploads');
+});
+
+// Voice log
 app.post('/voice-log', async (req, res) => {
     const name = req.body.name || 'Unknown';
     const reason = req.body.reason || 'No reason';
@@ -110,6 +152,7 @@ app.post('/voice-log', async (req, res) => {
     res.sendStatus(200);
 });
 
+// View voice ban logs
 app.get('/dashboard/voice-bans', (_, res) => {
     const logText = fs.existsSync(voiceLogFile)
         ? fs.readFileSync(voiceLogFile, 'utf8')
@@ -124,6 +167,7 @@ app.get('/dashboard/voice-bans', (_, res) => {
     <a href="/">⬅️ Back to Dashboard</a></body></html>`);
 });
 
+// Unban player
 app.post('/unban-user', async (req, res) => {
     const playfabId = req.body.playfabId;
     if (!playfabId) return res.status(400).send('❌ Missing PlayFabId');
@@ -144,6 +188,6 @@ app.post('/unban-user', async (req, res) => {
     }
 });
 
-
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
