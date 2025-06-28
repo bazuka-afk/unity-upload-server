@@ -198,6 +198,24 @@ app.post('/delete-multiple', (req, res) => {
 });
 
 
+app.post('/upload', upload.single('file'), (req, res) => {
+    const uploader = req.body.name || 'UnknownUploader';
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).send('❌ No file received');
+    }
+
+    const filename = file.originalname;
+    const filepath = path.join(uploadDir, filename);
+    const metaPath = filepath + '.meta';
+
+    fs.writeFileSync(filepath, file.buffer);
+    fs.writeFileSync(metaPath, uploader);
+
+    console.log(`📥 File uploaded: ${filename} by ${uploader}`);
+    res.status(200).send(`✅ File uploaded: ${filename}`);
+});
 
 // Voice log submission route
 app.post('/voice-log', (req, res) => {
