@@ -3,6 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
+
 const axios = require('axios');
 require('dotenv').config();
 
@@ -14,6 +15,9 @@ const voiceLogFile = path.join(logsDir, 'voice_bans.log');
 const reportsFile = path.join(logsDir, 'reports.json');
 const winnersFile = path.join(logsDir, 'winners.json');
    const bannedPlayersFile = path.join(logsDir, 'banned_players.json'); // Add this line
+   const bannedPlayersFile = path.join(__dirname, 'logs', 'banned_players.json');
+
+
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
@@ -27,6 +31,7 @@ if (!fs.existsSync(bannedPlayersFile)) fs.writeFileSync(bannedPlayersFile, JSON.
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(uploadDir));
+app.use(bodyParser.json());
 
 function limitLogSize(filePath, maxBytes = 1048576) {
     try {
@@ -84,40 +89,79 @@ app.get('/', (req, res) => {
 
 
 
+// POST route to add player to banned list (Ban a player)
+app.post('/api/ban-player', (req, res) => {
+    const { playfabId, reason, banDuration } = req.body;
 
-// Revoke Ban Route
-app.get('/revoke-ban', (req, res) => {
-    const playerName = req.query.playerName;
-
-    if (!playerName) {
-        return res.status(400).send('❌ Player name is required.');
+    // Ensure all required fields are provided
+    if (!playfabId || !reason || !banDuration) {
+        return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    // Load the banned players list
-    const bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
-
-    // Find the player to revoke the ban
-    const playerIndex = bannedPlayers.findIndex(player => player.name === playerName);
-
-    if (playerIndex === -1) {
-        return res.status(404).send('❌ Player not found in the banned list.');
+    // Load the existing banned players list
+    let bannedPlayers = [];
+    if (fs.existsSync(bannedPlayersFile)) {
+        bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
     }
 
-    // Remove the player from the banned list
-    bannedPlayers.splice(playerIndex, 1);
+    // Check if player is already banned
+    const playerAlreadyBanned = bannedPlayers.find(player => player.PlayFabId === playfabId);
+    if (playerAlreadyBanned) {
+        return res.status(400).json({ error: 'Player is already banned.' });
+    }
 
-    // Save the updated list back to the file
+    // Calculate ban expiration time (duration in minutes)
+    const banExpiresAt = new Date();
+    banExpiresAt.setMinutes(banExpiresAt.getMinutes() + banDuration); // Ban duration in minutes
+
+    // Add player to banned players list
+    bannedPlayers.push({
+        PlayFabId: playfabId,
+        BanReason: reason,
+        BanTimeLeft: banExpiresAt.toISOString()
+    });
+
+    // Save the updated banned players list
     fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
 
-    // Respond with success
-    res.send(`
-        <html><head><title>🔇 Ban Revoked</title></head>
-        <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
-            <h1>✅ Ban Revoked</h1>
-            <p>Player <b>${playerName}</b>'s ban has been revoked.</p>
-            <br><a href="/dashboard/banned-players">⬅️ Back to Banned Players List</a>
-        </body></html>
-    `);
+    // Send success response
+    res.status(200).json({
+        message: `Player ${playfabId} has been banned for ${banDuration} minutes.`
+    });
+});
+
+// Revoke Ban Route
+// **POST /api/revoke-ban** — Revoke Ban
+app.post('/api/revoke-ban', (req, res) => {
+    const { playfabId } = req.body;
+
+    // Ensure the playfabId is provided
+    if (!playfabId) {
+        return res.status(400).json({ error: 'Missing PlayFabId.' });
+    }
+
+    // Load the existing banned players list
+    let bannedPlayers = [];
+    if (fs.existsSync(bannedPlayersFile)) {
+        bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
+    }
+
+    // Find the player to revoke the ban
+    const playerIndex = bannedPlayers.findIndex(player => player.PlayFabId === playfabId);
+    if (playerIndex === -1) {
+        return res.status(404).json({ error: 'Player not found in banned list.' });
+    }
+
+    // Remove the player from the banned players list
+    bannedPlayers.splice(playerIndex, 1);
+
+    // Save the updated banned players list
+    fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
+
+    // Send success response
+    res.status(200).json({
+        message: `Player ${playfabId} has been unbanned.`
+    });
 });
 
 // Banned Players List Route
