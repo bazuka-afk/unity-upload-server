@@ -12,10 +12,12 @@ const app = express();
 const uploadDir = path.join(__dirname, 'uploads');
 const logsDir = path.join(__dirname, 'logs');
 const voiceLogFile = path.join(logsDir, 'voice_bans.log');
+const reportsFile = path.join(logsDir, 'reports.json'); // For storing reports
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
 if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
+if (!fs.existsSync(reportsFile)) fs.writeFileSync(reportsFile, JSON.stringify([])); // Initialize an empty reports file
 
 // Body parser middleware to handle POST requests
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -41,8 +43,11 @@ app.get('/', (req, res) => {
     const logs = fs.existsSync(voiceLogFile)
         ? fs.readFileSync(voiceLogFile, 'utf8').trim().split('\n').filter(Boolean)
         : [];
+    const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
+
     const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
-    
+    const recentReports = reports.slice(-5).map(report => `<li>${report.reporter} reported ${report.reported} for: "${report.reason}" at ${report.time}</li>`).join('');
+
     res.send(`
         <html><head><title>🛠 Dashboard</title></head>
         <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
@@ -50,14 +55,48 @@ app.get('/', (req, res) => {
             <p>📁 Total Maps: <b>${totalMaps}</b></p>
             <p>💾 Disk Usage: <b>${totalSizeMB} MB</b> / 500 MB</p>
             <p>🔇 Voice Ban Entries: <b>${logs.length}</b></p>
+            <p>📝 Reports Submitted: <b>${reports.length}</b></p>
             <h3>📂 Quick Links</h3>
             <ul>
                 <li><a href="/uploads">📤 Uploaded Maps</a></li>
                 <li><a href="/dashboard/voice-bans">🔇 Voice Ban Logs</a></li>
+                <li><a href="/dashboard/reports">📝 Reports</a></li>
             </ul>
+
             <h3>🕵️ Recent Voice Logs</h3>
             <ul>${recentLogs || '<li>No logs yet.</li>'}</ul>
+
+            <h3>🕵️ Recent Reports</h3>
+            <ul>${recentReports || '<li>No reports yet.</li>'}</ul>
         </body></html>
+    `);
+});
+
+// Reports page
+app.get('/dashboard/reports', (req, res) => {
+    const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
+    const reportsList = reports.map(report => `
+        <tr>
+            <td>${report.reporter}</td>
+            <td>${report.reported}</td>
+            <td>${report.reason}</td>
+            <td>${report.time}</td>
+        </tr>
+    `).join('');
+
+    res.send(`
+        <html><body style="font-family:sans-serif">
+        <h2>📝 Reports</h2>
+        <table border="1" cellpadding="6">
+            <tr>
+                <th>Reporter</th>
+                <th>Reported</th>
+                <th>Reason</th>
+                <th>Time</th>
+            </tr>
+            ${reportsList}
+        </table>
+        <a href="/">⬅️ Back to Dashboard</a></body></html>
     `);
 });
 
@@ -103,17 +142,31 @@ app.get('/uploads', (req, res) => {
     res.send(html);
 });
 
-// Upload endpoint
-app.post('/upload', multer({
-    storage: multer.diskStorage({
-        destination: (_, __, cb) => cb(null, uploadDir),
-        filename: (_, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-    })
-}).single('file'), (req, res) => {
-    const uploader = req.body.name || 'Unknown';
-    if (!req.file) return res.status(400).send('❌ No file uploaded.');
-    fs.writeFileSync(path.join(uploadDir, req.file.filename + '.meta'), uploader);
-    res.status(200).send('✅ File uploaded successfully!');
+// Add report submission route
+app.post('/submit-report', (req, res) => {
+    const reporter = req.body.reporter;
+    const reported = req.body.reported;
+    const reason = req.body.reason;
+
+    if (!reporter || !reported || !reason) {
+        return res.status(400).send('❌ Missing required fields');
+    }
+
+    const report = {
+        reporter,
+        reported,
+        reason,
+        time: new Date().toISOString(),
+    };
+
+    // Load existing reports
+    const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
+    reports.push(report);
+
+    // Save the updated reports
+    fs.writeFileSync(reportsFile, JSON.stringify(reports, null, 2));
+
+    res.send('✅ Report submitted successfully.');
 });
 
 // Delete file
@@ -137,55 +190,6 @@ app.post('/delete-multiple', (req, res) => {
         } catch {}
     }
     res.redirect('/uploads');
-});
-
-// Voice log
-app.post('/voice-log', async (req, res) => {
-    const name = req.body.name || 'Unknown';
-    const reason = req.body.reason || 'No reason';
-    const playfabId = req.body.playfabId;
-    const time = new Date().toISOString();
-    const entry = `[${time}] 🔇 ${name} (${playfabId || 'N/A'}): ${reason}\n`;
-    limitLogSize(voiceLogFile);
-    fs.appendFileSync(voiceLogFile, entry);
-    console.log(entry.trim());
-    res.sendStatus(200);
-});
-
-// View voice ban logs
-app.get('/dashboard/voice-bans', (_, res) => {
-    const logText = fs.existsSync(voiceLogFile)
-        ? fs.readFileSync(voiceLogFile, 'utf8')
-        : '[No logs]';
-    res.send(`<html><body style="font-family:sans-serif">
-    <h2>🔇 Voice Ban Logs</h2><pre>${logText}</pre>
-    <form method="POST" action="/unban-user">
-      <label>PlayFab ID:</label>
-      <input type="text" name="playfabId" required />
-      <button type="submit">🔓 Unban</button>
-    </form>
-    <a href="/">⬅️ Back to Dashboard</a></body></html>`);
-});
-
-// Unban player
-app.post('/unban-user', async (req, res) => {
-    const playfabId = req.body.playfabId;
-    if (!playfabId) return res.status(400).send('❌ Missing PlayFabId');
-    try {
-        await axios.post(`https://${process.env.PLAYFAB_TITLE_ID}.playfabapi.com/Admin/UnbanUsers`, {
-            PlayFabIds: [playfabId]
-        }, {
-            headers: {
-                'X-SecretKey': process.env.PLAYFAB_SECRET_KEY,
-                'Content-Type': 'application/json'
-            }
-        });
-        console.log(`✅ Unbanned ${playfabId}`);
-        res.send('✅ Unban successful.');
-    } catch (err) {
-        console.error('❌ PlayFab unban failed:', err.response?.data || err.message);
-        res.status(500).send('❌ Failed to unban.');
-    }
 });
 
 // Start server
