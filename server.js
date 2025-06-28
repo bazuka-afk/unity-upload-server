@@ -198,6 +198,27 @@ app.post('/delete-multiple', (req, res) => {
 });
 
 
+
+// Voice log submission route
+app.post('/voice-log', (req, res) => {
+    const name = req.body.name || 'Unknown';
+    const reason = req.body.reason || 'No reason';
+    const playfabId = req.body.playfabId || 'N/A';
+    const time = new Date().toISOString();
+
+    const entry = `[${time}] 🔇 ${name} (${playfabId}): ${reason}\n`;
+
+    try {
+        fs.appendFileSync(voiceLogFile, entry);
+        console.log(entry.trim());
+        res.sendStatus(200);
+    } catch (err) {
+        console.error("❌ Failed to write to voice log:", err);
+        res.sendStatus(500);
+    }
+});
+
+
 // View voice ban logs
 app.get('/dashboard/voice-bans', (_, res) => {
     const logText = fs.existsSync(voiceLogFile)
