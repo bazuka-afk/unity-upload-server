@@ -44,6 +44,24 @@ function limitLogSize(filePath, maxBytes = 1048576) {
     }
 }
 
+function cleanExpiredBans() {
+    if (!fs.existsSync(bannedPlayersFile)) return;
+
+    let bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
+    const now = new Date();
+
+    const activeBans = bannedPlayers.filter(player => {
+        const banExpiry = new Date(player.BanTimeLeft);
+        return banExpiry > now;
+    });
+
+    if (activeBans.length !== bannedPlayers.length) {
+        fs.writeFileSync(bannedPlayersFile, JSON.stringify(activeBans, null, 2));
+        console.log(`Cleaned expired bans. Active bans count: ${activeBans.length}`);
+    }
+}
+
+
 app.get('/', (req, res) => {
     const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
     const totalMaps = files.length;
@@ -93,42 +111,45 @@ app.get('/', (req, res) => {
 app.post('/api/ban-player', (req, res) => {
     const { playfabId, reason, banDuration } = req.body;
 
-    // Ensure all required fields are provided
     if (!playfabId || !reason || !banDuration) {
         return res.status(400).json({ error: 'Missing required fields.' });
     }
 
-    // Load the existing banned players list
     let bannedPlayers = [];
     if (fs.existsSync(bannedPlayersFile)) {
         bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
     }
 
-    // Check if player is already banned
     const playerAlreadyBanned = bannedPlayers.find(player => player.PlayFabId === playfabId);
     if (playerAlreadyBanned) {
         return res.status(400).json({ error: 'Player is already banned.' });
     }
 
-    // Calculate ban expiration time (duration in minutes)
     const banExpiresAt = new Date();
-    banExpiresAt.setMinutes(banExpiresAt.getMinutes() + banDuration); // Ban duration in minutes
+    banExpiresAt.setMinutes(banExpiresAt.getMinutes() + banDuration);
 
-    // Add player to banned players list
     bannedPlayers.push({
         PlayFabId: playfabId,
         BanReason: reason,
         BanTimeLeft: banExpiresAt.toISOString()
     });
 
-    // Save the updated banned players list
     fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
 
-    // Send success response
+    // --- Log voice ban entry here ---
+    const logEntry = `[${new Date().toISOString()}] 🔇 Player ${playfabId} banned for ${banDuration} minutes. Reason: ${reason}\n`;
+    try {
+        fs.appendFileSync(voiceLogFile, logEntry);
+        console.log("Voice ban log entry added:", logEntry.trim());
+    } catch (err) {
+        console.error("Failed to write voice ban log:", err);
+    }
+
     res.status(200).json({
         message: `Player ${playfabId} has been banned for ${banDuration} minutes.`
     });
 });
+;
 
 // Revoke Ban Route
 // **POST /api/revoke-ban** — Revoke Ban
@@ -392,4 +413,9 @@ app.get('/api/servertime', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+// Clean expired bans on server start
+cleanExpiredBans();
+// Schedule to clean expired bans every 60 seconds
+setInterval(cleanExpiredBans, 60 * 1000);
+
 app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
