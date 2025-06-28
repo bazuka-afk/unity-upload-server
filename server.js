@@ -56,6 +56,8 @@ app.get('/', (req, res) => {
             <p>💾 Disk Usage: <b>${totalSizeMB} MB</b> / 500 MB</p>
             <p>🔇 Voice Ban Entries: <b>${logs.length}</b></p>
             <p>📝 Reports Submitted: <b>${reports.length}</b></p>
+            <p>🕒 Current Server UTC Time: <b>${currentUtcTime}</b></p>
+
             <h3>📂 Quick Links</h3>
             <ul>
                 <li><a href="/uploads">📤 Uploaded Maps</a></li>
@@ -191,6 +193,16 @@ app.post('/delete-multiple', (req, res) => {
     }
     res.redirect('/uploads');
 });
+
+// Server time endpoint for UTC time sync
+app.get('/api/servertime', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  const currentUtcTime = new Date().toISOString();
+
+  res.send(new Date().toISOString());
+});
+
+
 
 // Start server
 const PORT = process.env.PORT || 3000;
