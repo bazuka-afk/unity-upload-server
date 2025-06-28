@@ -48,6 +48,8 @@ app.get('/', (req, res) => {
     const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
     const recentReports = reports.slice(-5).map(report => `<li>${report.reporter} reported ${report.reported} for: "${report.reason}" at ${report.time}</li>`).join('');
 
+    const currentUtcTime = new Date().toISOString();  // <-- define here!
+
     res.send(`
         <html><head><title>🛠 Dashboard</title></head>
         <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
@@ -73,6 +75,7 @@ app.get('/', (req, res) => {
         </body></html>
     `);
 });
+
 
 // Reports page
 app.get('/dashboard/reports', (req, res) => {
