@@ -132,10 +132,11 @@ app.post('/api/ban-player', (req, res) => {
 
 // Revoke Ban Route
 // **POST /api/revoke-ban** — Revoke Ban
+// Revoke Ban Route
 app.get('/revoke-ban', (req, res) => {
-  const playerName = req.query.playerName;
+  const playerId = req.query.playerName; // Actually PlayFabId here
 
-  if (!playerName) {
+  if (!playerId) {
     return res.status(400).send('Missing playerName parameter.');
   }
 
@@ -144,8 +145,7 @@ app.get('/revoke-ban', (req, res) => {
     bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
   }
 
-  // Find index by playerName or PlayFabId (adjust depending on what your banned list stores)
-  const index = bannedPlayers.findIndex(p => p.name === playerName || p.PlayFabId === playerName);
+  const index = bannedPlayers.findIndex(p => p.PlayFabId === playerId);
 
   if (index === -1) {
     return res.status(404).send('Player not found in banned list.');
@@ -154,10 +154,42 @@ app.get('/revoke-ban', (req, res) => {
   bannedPlayers.splice(index, 1);
   fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
 
-  // Redirect back to banned players page after unban
   res.redirect('/dashboard/banned-players');
 });
 
+// Banned Players List Route
+app.get('/dashboard/banned-players', (req, res) => {
+  const bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
+
+  let bannedListHTML = bannedPlayers.map(player => 
+    `<tr>
+        <td>${player.PlayFabId}</td>
+        <td>${player.BanReason}</td>
+        <td>${player.BanTimeLeft}</td>
+        <td><a href="/revoke-ban?playerName=${encodeURIComponent(player.PlayFabId)}" class="revoke-btn">Revoke Ban</a></td>
+    </tr>`).join('');
+
+  res.send(`
+      <html><head><title>🔇 Banned Players</title></head>
+      <body style="font-family:sans-serif; padding:20px; background:#f4f4f4;">
+          <h1>🔇 Banned Players List</h1>
+          <table border="1" cellpadding="6">
+              <tr>
+                  <th>Player ID</th>
+                  <th>Ban Reason</th>
+                  <th>Time Left</th>
+                  <th>Actions</th>
+              </tr>
+              ${bannedListHTML || '<tr><td colspan="4">No banned players yet.</td></tr>'}
+          </table>
+          <br><a href="/">⬅️ Back to Dashboard</a></body></html>
+  `);
+});
+
+app.get('/api/servertime', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(new Date().toISOString());
+});
 
 // Banned Players List Route
 app.get('/dashboard/banned-players', (req, res) => {
