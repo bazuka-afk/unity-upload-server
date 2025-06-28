@@ -416,6 +416,6 @@ const PORT = process.env.PORT || 3000;
 // Clean expired bans on server start
 cleanExpiredBans();
 // Schedule to clean expired bans every 60 seconds
-setInterval(cleanExpiredBans, 60 * 1000);
+setInterval(cleanExpiredBans, 10 * 1000);
 
 app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
