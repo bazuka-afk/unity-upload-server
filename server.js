@@ -7,17 +7,18 @@ const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
-const upload = multer();
 
 const uploadDir = path.join(__dirname, 'uploads');
 const logsDir = path.join(__dirname, 'logs');
 const voiceLogFile = path.join(logsDir, 'voice_bans.log');
 const reportsFile = path.join(logsDir, 'reports.json');
+const winnersFile = path.join(logsDir, 'winners.json');
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
 if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 if (!fs.existsSync(reportsFile)) fs.writeFileSync(reportsFile, JSON.stringify([]));
+if (!fs.existsSync(winnersFile)) fs.writeFileSync(winnersFile, JSON.stringify([]));
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(uploadDir));
@@ -39,10 +40,11 @@ app.get('/', (req, res) => {
     const totalSizeMB = (files.reduce((sum, f) => sum + fs.statSync(path.join(uploadDir, f)).size, 0) / (1024 * 1024)).toFixed(2);
     const logs = fs.existsSync(voiceLogFile) ? fs.readFileSync(voiceLogFile, 'utf8').trim().split('\n').filter(Boolean) : [];
     const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
-    const currentUtcTime = new Date().toISOString();
+    const winners = JSON.parse(fs.readFileSync(winnersFile, 'utf8'));
 
     const recentLogs = logs.slice(-5).reverse().map(line => `<li>${line}</li>`).join('');
     const recentReports = reports.slice(-5).map(report => `<li>${report.reporter} reported ${report.reported} for: "${report.reason}" at ${report.time}</li>`).join('');
+    const currentUtcTime = new Date().toISOString();
 
     res.send(`
         <html><head><title>🛠 Dashboard</title></head>
@@ -52,6 +54,7 @@ app.get('/', (req, res) => {
             <p>💾 Disk Usage: <b>${totalSizeMB} MB</b> / 500 MB</p>
             <p>🔇 Voice Ban Entries: <b>${logs.length}</b></p>
             <p>📝 Reports Submitted: <b>${reports.length}</b></p>
+            <p>🏆 Winners Picked: <b>${winners.length}</b></p>
             <p>🕒 Current Server UTC Time: <b>${currentUtcTime}</b></p>
 
             <h3>📂 Quick Links</h3>
@@ -70,105 +73,30 @@ app.get('/', (req, res) => {
     `);
 });
 
-app.post('/upload', upload.single('file'), (req, res) => {
-    const uploader = req.body.name || 'UnknownUploader';
-    const file = req.file;
-    if (!file) return res.status(400).send('❌ No file received');
+// Pick winners - POST route
+app.post('/pick-winners', (req, res) => {
+    const count = parseInt(req.body.count);
+    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json'));
 
-    const filename = file.originalname;
-    const filepath = path.join(uploadDir, filename);
-    const metaPath = filepath + '.meta';
-
-    fs.writeFileSync(filepath, file.buffer);
-    fs.writeFileSync(metaPath, uploader);
-
-    console.log(`📥 File uploaded: ${filename} by ${uploader}`);
-    res.status(200).send(`✅ File uploaded: ${filename}`);
-});
-
-app.get('/uploads', (req, res) => {
-    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
-        const filePath = path.join(uploadDir, filename);
-        const metaPath = filePath + '.meta';
-        const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
-        const uploader = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : 'Unknown';
-        return { filename, uploader, sizeKB, url: '/' + filename };
-    });
-
-    const totalMB = (files.reduce((a, b) => a + b.sizeKB, 0) / 1024).toFixed(2);
-    const usedPercent = ((totalMB / 500) * 100).toFixed(1);
-
-    let html = `<html><head><title>Uploads</title></head><body style="font-family:sans-serif">
-        <h2>📤 Uploads</h2>
-        <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
-        <a href="/">⬅️ Back to Dashboard</a><br><br>
-        <form method="POST" action="/delete-multiple">
-        <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
-
-    for (const file of files) {
-        html += `<tr>
-        <td><input type="checkbox" name="filenames" value="${file.filename}"></td>
-        <td>${file.uploader}</td>
-        <td><a href="${file.url}" target="_blank">${file.filename}</a></td>
-        <td>${file.sizeKB} KB</td>
-        <td><a href="/delete-file?filename=${file.filename}">❌ Delete</a></td>
-        </tr>`;
+    if (isNaN(count) || count < 1 || count > files.length) {
+        return res.status(400).send("Invalid count.");
     }
 
-    html += `</table><button type="submit">🧹 Delete Selected</button></form>
-    </body></html>`;
-
-    res.send(html);
+    const shuffled = [...files].sort(() => Math.random() - 0.5);
+    const selected = shuffled.slice(0, count);
+    fs.writeFileSync(winnersFile, JSON.stringify(selected, null, 2));
+    res.redirect('/uploads');
 });
 
-app.post('/voice-log', (req, res) => {
-    const name = req.body.name || 'Unknown';
-    const reason = req.body.reason || 'No reason';
-    const playfabId = req.body.playfabId || 'N/A';
-    const time = new Date().toISOString();
-
-    const entry = `[${time}] 🔇 ${name} (${playfabId}): ${reason}\n`;
-    try {
-        fs.appendFileSync(voiceLogFile, entry);
-        console.log(entry.trim());
-        res.sendStatus(200);
-    } catch (err) {
-        console.error("❌ Failed to write to voice log:", err);
-        res.sendStatus(500);
-    }
+// Clear winners - POST route
+app.post('/clear-winners', (req, res) => {
+    fs.writeFileSync(winnersFile, JSON.stringify([]));
+    res.redirect('/uploads');
 });
 
-app.get('/dashboard/voice-bans', (_, res) => {
-    const logText = fs.existsSync(voiceLogFile)
-        ? fs.readFileSync(voiceLogFile, 'utf8')
-        : '[No logs]';
-    res.send(`<html><body style="font-family:sans-serif">
-    <h2>🔇 Voice Ban Logs</h2><pre>${logText}</pre>
-    <a href="/">⬅️ Back to Dashboard</a></body></html>`);
-});
+// Your existing routes below...
 
-app.post('/submit-report', (req, res) => {
-    const reporter = req.body.reporter;
-    const reported = req.body.reported;
-    const reason = req.body.reason;
-
-    if (!reporter || !reported || !reason) {
-        return res.status(400).send('❌ Missing required fields');
-    }
-
-    const report = {
-        reporter,
-        reported,
-        reason,
-        time: new Date().toISOString(),
-    };
-
-    const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
-    reports.push(report);
-    fs.writeFileSync(reportsFile, JSON.stringify(reports, null, 2));
-    res.send('✅ Report submitted successfully.');
-});
-
+// Reports page
 app.get('/dashboard/reports', (req, res) => {
     const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
     const reportsList = reports.map(report => `
@@ -196,6 +124,72 @@ app.get('/dashboard/reports', (req, res) => {
     `);
 });
 
+// Upload page
+app.get('/uploads', (req, res) => {
+    const files = fs.readdirSync(uploadDir).filter(f => f.endsWith('.json')).map(filename => {
+        const filePath = path.join(uploadDir, filename);
+        const metaPath = filePath + '.meta';
+        const sizeKB = Math.round(fs.statSync(filePath).size / 1024);
+        const uploader = fs.existsSync(metaPath) ? fs.readFileSync(metaPath, 'utf8') : 'Unknown';
+        return { filename, uploader, sizeKB, url: '/' + filename };
+    });
+
+    const totalMB = (files.reduce((a, b) => a + b.sizeKB, 0) / 1024).toFixed(2);
+    const usedPercent = ((totalMB / 500) * 100).toFixed(1);
+
+    let html = `
+        <html><head><title>Uploads</title></head><body style="font-family:sans-serif">
+        <h2>📤 Uploads</h2>
+        <p>Used: ${totalMB} MB / 500 MB (${usedPercent}%)</p>
+        <a href="/">⬅️ Back to Dashboard</a><br><br>
+        <form method="POST" action="/delete-multiple">
+        <table border="1" cellpadding="6"><tr><th></th><th>Uploader</th><th>File</th><th>Size</th><th>Actions</th></tr>`;
+
+    for (const file of files) {
+        html += `<tr>
+        <td><input type="checkbox" name="filenames" value="${file.filename}"></td>
+        <td>${file.uploader}</td>
+        <td><a href="${file.url}" target="_blank">${file.filename}</a></td>
+        <td>${file.sizeKB} KB</td>
+        <td><a href="/delete-file?filename=${file.filename}">❌ Delete</a></td>
+        </tr>`;
+    }
+
+    html += `</table><button type="submit">🧹 Delete Selected</button></form>
+    <br><form method="POST" action="/pick-winners">
+        <label>Pick Winners:</label>
+        <input name="count" type="number" min="1" max="${files.length}" required>
+        <button type="submit">🎲 Pick</button>
+    </form>
+    <form method="POST" action="/clear-winners"><button>Reset Winners</button></form>
+    </body></html>`;
+    res.send(html);
+});
+
+// Add report submission route
+app.post('/submit-report', (req, res) => {
+    const reporter = req.body.reporter;
+    const reported = req.body.reported;
+    const reason = req.body.reason;
+
+    if (!reporter || !reported || !reason) {
+        return res.status(400).send('❌ Missing required fields');
+    }
+
+    const report = {
+        reporter,
+        reported,
+        reason,
+        time: new Date().toISOString(),
+    };
+
+    const reports = JSON.parse(fs.readFileSync(reportsFile, 'utf8'));
+    reports.push(report);
+    fs.writeFileSync(reportsFile, JSON.stringify(reports, null, 2));
+    res.send('✅ Report submitted successfully.');
+});
+
+// Delete file
 app.get('/delete-file', (req, res) => {
     const file = req.query.filename;
     if (!file) return res.redirect('/');
@@ -206,6 +200,7 @@ app.get('/delete-file', (req, res) => {
     res.redirect('/uploads');
 });
 
+// Bulk delete
 app.post('/delete-multiple', (req, res) => {
     const files = Array.isArray(req.body.filenames) ? req.body.filenames : [req.body.filenames];
     for (const f of files) {
@@ -217,10 +212,38 @@ app.post('/delete-multiple', (req, res) => {
     res.redirect('/uploads');
 });
 
+// Voice log submission route
+app.post('/voice-log', (req, res) => {
+    const name = req.body.name || 'Unknown';
+    const reason = req.body.reason || 'No reason';
+    const playfabId = req.body.playfabId || 'N/A';
+    const time = new Date().toISOString();
+
+    const entry = `[${time}] 🔇 ${name} (${playfabId}): ${reason}\n`;
+
+    try {
+        fs.appendFileSync(voiceLogFile, entry);
+        console.log(entry.trim());
+        res.sendStatus(200);
+    } catch (err) {
+        console.error("❌ Failed to write to voice log:", err);
+        res.sendStatus(500);
+    }
+});
+
+// View voice ban logs
+app.get('/dashboard/voice-bans', (_, res) => {
+    const logText = fs.existsSync(voiceLogFile) ? fs.readFileSync(voiceLogFile, 'utf8') : '[No logs]';
+    res.send(`<html><body style="font-family:sans-serif">
+    <h2>🔇 Voice Ban Logs</h2><pre>${logText}</pre>
+    <a href="/">⬅️ Back to Dashboard</a></body></html>`);
+});
+
+// Server time endpoint for UTC time sync
 app.get('/api/servertime', (req, res) => {
-    res.setHeader('Content-Type', 'text/plain');
-    res.send(new Date().toISOString());
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(new Date().toISOString());
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Running at http://localhost:${PORT}`));
