@@ -132,37 +132,32 @@ app.post('/api/ban-player', (req, res) => {
 
 // Revoke Ban Route
 // **POST /api/revoke-ban** — Revoke Ban
-app.post('/api/revoke-ban', (req, res) => {
-    const { playfabId } = req.body;
+app.get('/revoke-ban', (req, res) => {
+  const playerName = req.query.playerName;
 
-    // Ensure the playfabId is provided
-    if (!playfabId) {
-        return res.status(400).json({ error: 'Missing PlayFabId.' });
-    }
+  if (!playerName) {
+    return res.status(400).send('Missing playerName parameter.');
+  }
 
-    // Load the existing banned players list
-    let bannedPlayers = [];
-    if (fs.existsSync(bannedPlayersFile)) {
-        bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
-    }
+  let bannedPlayers = [];
+  if (fs.existsSync(bannedPlayersFile)) {
+    bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
+  }
 
-    // Find the player to revoke the ban
-    const playerIndex = bannedPlayers.findIndex(player => player.PlayFabId === playfabId);
-    if (playerIndex === -1) {
-        return res.status(404).json({ error: 'Player not found in banned list.' });
-    }
+  // Find index by playerName or PlayFabId (adjust depending on what your banned list stores)
+  const index = bannedPlayers.findIndex(p => p.name === playerName || p.PlayFabId === playerName);
 
-    // Remove the player from the banned players list
-    bannedPlayers.splice(playerIndex, 1);
+  if (index === -1) {
+    return res.status(404).send('Player not found in banned list.');
+  }
 
-    // Save the updated banned players list
-    fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
+  bannedPlayers.splice(index, 1);
+  fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
 
-    // Send success response
-    res.status(200).json({
-        message: `Player ${playfabId} has been unbanned.`
-    });
+  // Redirect back to banned players page after unban
+  res.redirect('/dashboard/banned-players');
 });
+
 
 // Banned Players List Route
 app.get('/dashboard/banned-players', (req, res) => {
