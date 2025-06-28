@@ -120,35 +120,27 @@ app.post('/api/ban-player', (req, res) => {
         bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
     }
 
-    const playerAlreadyBanned = bannedPlayers.find(player => player.PlayFabId === playfabId);
-    if (playerAlreadyBanned) {
+    if (bannedPlayers.find(player => player.PlayFabId === playfabId)) {
         return res.status(400).json({ error: 'Player is already banned.' });
     }
 
-    const banExpiresAt = new Date();
-    banExpiresAt.setMinutes(banExpiresAt.getMinutes() + banDuration);
+    // Use UTC now + duration in minutes for ban expiration
+    const banExpiresAt = new Date(Date.now() + banDuration * 60 * 1000);
 
     bannedPlayers.push({
         PlayFabId: playfabId,
         BanReason: reason,
-        BanTimeLeft: banExpiresAt.toISOString()
+        BanTimeLeft: banExpiresAt.toISOString() // store UTC time as ISO string
     });
 
     fs.writeFileSync(bannedPlayersFile, JSON.stringify(bannedPlayers, null, 2));
 
-    // --- Log voice ban entry here ---
-    const logEntry = `[${new Date().toISOString()}] 🔇 Player ${playfabId} banned for ${banDuration} minutes. Reason: ${reason}\n`;
-    try {
-        fs.appendFileSync(voiceLogFile, logEntry);
-        console.log("Voice ban log entry added:", logEntry.trim());
-    } catch (err) {
-        console.error("Failed to write voice ban log:", err);
-    }
-
     res.status(200).json({
-        message: `Player ${playfabId} has been banned for ${banDuration} minutes.`
+        message: `Player ${playfabId} has been banned for ${banDuration} minutes (UTC).`,
+        banExpiresAt: banExpiresAt.toISOString()
     });
 });
+
 ;
 
 // Revoke Ban Route
