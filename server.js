@@ -7,6 +7,8 @@ const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
+const multer = require('multer');
+const upload = multer();
 
 // Setup directories for file uploads and logs
 const uploadDir = path.join(__dirname, 'uploads');
@@ -198,8 +200,7 @@ app.post('/delete-multiple', (req, res) => {
 });
 
 
-const multer = require('multer');
-const upload = multer();
+
 
 app.post('/upload', upload.single('file'), (req, res) => {
     const uploader = req.body.name || 'UnknownUploader';
