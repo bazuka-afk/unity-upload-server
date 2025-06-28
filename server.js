@@ -14,10 +14,11 @@ const logsDir = path.join(__dirname, 'logs');
 const voiceLogFile = path.join(logsDir, 'voice_bans.log');
 const reportsFile = path.join(logsDir, 'reports.json');
 const winnersFile = path.join(logsDir, 'winners.json');
-   const bannedPlayersFile = path.join(logsDir, 'banned_players.json'); // Add this line
-   const bannedPlayersFile = path.join(__dirname, 'logs', 'banned_players.json');
+const bannedPlayersFile = path.join(logsDir, 'banned_players.json'); // Add this line
+  
 
 
+const bannedPlayersFile = path.join(logsDir, 'banned_players.json'); // Declare bannedPlayersFile once
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
@@ -25,7 +26,7 @@ if (!fs.existsSync(voiceLogFile)) fs.writeFileSync(voiceLogFile, '');
 if (!fs.existsSync(reportsFile)) fs.writeFileSync(reportsFile, JSON.stringify([]));
 if (!fs.existsSync(winnersFile)) fs.writeFileSync(winnersFile, JSON.stringify([]));
 if (!fs.existsSync(bannedPlayersFile)) fs.writeFileSync(bannedPlayersFile, JSON.stringify([])); // Ensure banned_players.json is created
-  
+
 
 
 
