@@ -390,6 +390,17 @@ app.post('/voice-log', (req, res) => {
     }
 });
 
+// GET route to serve raw voice ban log text at /voice-log
+app.get('/voice-log', (req, res) => {
+  if (!fs.existsSync(voiceLogFile)) {
+    return res.status(404).send('No voice ban logs found.');
+  }
+  const logText = fs.readFileSync(voiceLogFile, 'utf8');
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(logText);
+});
+
+
 // View voice ban logs
 app.get('/dashboard/voice-bans', (_, res) => {
     const logText = fs.existsSync(voiceLogFile) ? fs.readFileSync(voiceLogFile, 'utf8') : '[No logs]';
