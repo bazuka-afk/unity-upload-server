@@ -197,6 +197,19 @@ app.post('/delete-multiple', (req, res) => {
     res.redirect('/uploads');
 });
 
+
+// View voice ban logs
+app.get('/dashboard/voice-bans', (_, res) => {
+    const logText = fs.existsSync(voiceLogFile)
+        ? fs.readFileSync(voiceLogFile, 'utf8')
+        : '[No logs]';
+    res.send(`<html><body style="font-family:sans-serif">
+    <h2>🔇 Voice Ban Logs</h2><pre>${logText}</pre>
+    <a href="/">⬅️ Back to Dashboard</a></body></html>`);
+});
+
+
+
 // Server time endpoint for UTC time sync
 app.get('/api/servertime', (req, res) => {
   res.setHeader('Content-Type', 'text/plain');
