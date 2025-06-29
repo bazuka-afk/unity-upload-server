@@ -90,12 +90,12 @@ app.get('/', (req, res) => {
             <h3>📂 Quick Links</h3>
             <ul>
                 <li><a href="/uploads">📤 Uploaded Maps</a></li>
-                <li><a href="/dashboard/voice-bans">🔇 Voice Ban Logs</a></li>
+                <li><a href="/dashboard/voice-bans">🔇 Voice Ban Logs (BROKEN)</a></li>
                 <li><a href="/dashboard/reports">📝 Reports</a></li>
                  <li><a href="/dashboard/banned-players">🔇 Banned Players</a></li> <!-- Added link -->
             </ul>
 
-            <h3>🕵️ Recent Voice Logs</h3>
+            <h3>🕵️ Recent Voice Logs (BROKEN)</h3>
             <ul>${recentLogs || '<li>No logs yet.</li>'}</ul>
 
             <h3>🕵️ Recent Reports</h3>
