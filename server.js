@@ -121,6 +121,23 @@ app.get('/api/check-ban/:playfabId', (req, res) => {
   }
 });
 
+app.get('/api/ban-info', (req, res) => {
+  const playfabId = req.query.playfabId;
+  if (!playfabId) return res.status(400).json({ error: "Missing playfabId" });
+
+  const bannedPlayers = JSON.parse(fs.readFileSync(bannedPlayersFile, 'utf8'));
+  const player = bannedPlayers.find(p => p.PlayFabId === playfabId);
+
+  if (player) {
+    res.json({
+      isBanned: true,
+      banReason: player.BanReason,
+      banExpiryUtc: player.BanTimeLeft
+    });
+  } else {
+    res.json({ isBanned: false });
+  }
+});
 
 // POST route to add player to banned list (Ban a player)
 app.post('/api/ban-player', (req, res) => {
